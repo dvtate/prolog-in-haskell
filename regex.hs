@@ -62,14 +62,17 @@ capture' (RE_and (rexp : regexprs)) (revtoken, input) =
         Nothing -> Nothing 
         ok @ (Just (revtoken', input')) -> capture' (RE_and regexprs) (revtoken', input')
 
+capture' (RE_in_set []) _ = Nothing
+capture' (RE_in_set _) (_, []) = Nothing
 capture' (RE_in_set (symbol : symbols')) (revtoken, (head_inp : input'))
     | head_inp == symbol     = Just((head_inp : revtoken), input')
     | (length symbols') == 0 = Nothing
     | otherwise              = capture' (RE_in_set symbols') (revtoken, (head_inp : input'))
 
+
 capture' (RE_star rexp) (revtoken, input) = 
     case cstar rexp input [] of
-        ([], input') -> Nothing
+        ([], input') -> Just(revtoken, input')
         (tok, input') -> Just ((reverse tok) ++ revtoken, input')
     where 
         cstar :: Eq a => RegExpr a -> [a] -> [a] -> ([a], [a])

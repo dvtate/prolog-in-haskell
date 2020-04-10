@@ -25,3 +25,33 @@
 
 
 -- recursive descent parser...
+
+
+
+-- The parse tree structure follows the grammar structure
+--
+data Ptree =
+    Empty                           -- The empty parse tree
+    | Id String                     -- Identifiers
+    | Call String [Ptree]           -- Function call, list of arguments
+    | Exp Ptree Ptree               -- For Term/Term_tail
+    | Term Ptree Ptree              -- For Factor/Factor_Tail
+    | Ttail Symbol Ptree Ptree      -- for Symbol Term Ttail
+    | Ftail Symbol Ptree Ptree      -- Symbol Factor Ftail
+    | Negative Ptree                -- For - factor
+    deriving (Eq, Show, Read)
+
+
+data Problem = [Equation]
+    deriving (Eq, Show, Read)
+data Equation = (Expr, Expr)
+    deriving (Eq, Show, Read)
+data Expr = 
+    Empty
+    | Infix Char Expr Expr
+    | Unary Char Expr Expr
+    | FnCall String [Expr]
+    deriving (Eq, Show, Read)
+
+
+parse_Problem 
