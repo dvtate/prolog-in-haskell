@@ -85,8 +85,6 @@ parse_T input =
     parse_Ftail input1  `bind`  (\ (ftail, input2) ->
     Just (make_tail Term factor ftail, input2) ))
         -- make_tail tries to build a short tree
-
---
 -- A term tail is a plus, term, and term tail, or it's empty.
 --
 -- Grammar rule : Ttail -> + T Ttail | empty

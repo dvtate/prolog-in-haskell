@@ -17,7 +17,6 @@
 -- Arguments  -> \( Expr Argtail \)
 -- Argtail    -> \, Expr Argtail | empty
 
-
 -- Factor → identifier | variable
 -- Factor → constant | \( Expr \)| Function_call
 -- Function_call → identifier \( (Arguments|ε) \) // includes calls like f()
@@ -38,20 +37,6 @@ data Ptree =
     | Term Ptree Ptree              -- For Factor/Factor_Tail
     | Ttail Symbol Ptree Ptree      -- for Symbol Term Ttail
     | Ftail Symbol Ptree Ptree      -- Symbol Factor Ftail
-    | Negative Ptree                -- For - factor
+    | Unary Ptree                -- For - factor
     deriving (Eq, Show, Read)
 
-
-data Problem = [Equation]
-    deriving (Eq, Show, Read)
-data Equation = (Expr, Expr)
-    deriving (Eq, Show, Read)
-data Expr = 
-    Empty
-    | Infix Char Expr Expr
-    | Unary Char Expr Expr
-    | FnCall String [Expr]
-    deriving (Eq, Show, Read)
-
-
-parse_Problem 

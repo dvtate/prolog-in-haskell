@@ -118,16 +118,12 @@ data Token  = Const String    -- integer constant
 -- to it to get a token.  scan_rexps is an infinite cycle of the regular expressions
 -- the scanner is looking for
 -- scanners :: [ ( RegExpr, String -> Token ) ]
-scanners = [ (int_literal, Const), (identifier, Id), (variable, Var), (operator, \t -> Op (t !! 0)), (spaces, \t -> Space) ]
+scanners = [ (int_literal, \t -> ("const", t)), (identifier, \t -> ("id", t)), (variable, \t -> ("var", t)), (operator, \t -> ("op", t)), (spaces, \t -> ("space", t)) ]
 
 
--- scan input runs the scan algorithm on the input and returns the 
-scan :: String -> [Token]
-scan input = case scan' scanners [] input of
-    Just(tokens, remaining) -> tokenslist of
 -- resulting tokens (if any).  It calls a helper routine with an empty list
 -- of result tokens.
-scan :: String -> [Token]
+scan :: String -> [(String, String)]
 scan input = case scan' scanners [] input of
     Just(tokens, remaining) -> tokens
     Nothing -> []
@@ -143,8 +139,8 @@ scan input = case scan' scanners [] input of
     --  if longest token is `Nothing` throw syntax error
     --  push longest onto return
     -- scan input produces Just (list of tokens, remaining input)
-scan' :: [(a, b)] -> [Token] -> [Char] -> Maybe ([Token], [Char])
-scan' _ revtokens [] = Just(filter (\t -> t /= Space) (reverse revtokens), [])
+scan' :: [(a, b)] -> [(String, String)] -> [Char] -> Maybe ([(String, String)], [Char])
+scan' _ revtokens [] = Just(filter (\t -> (fst t) /= "space") (reverse revtokens), [])
 scan' patterns revt input
     | snd ret == input = error ("Lexical scan failed on `" ++ input ++ "`\n") --Just(filter (\t -> t /= Space) (reverse revt), snd ret)
     | otherwise = scan' patterns ((fst ret) : revt) (snd ret)
@@ -156,7 +152,7 @@ scan' patterns revt input
         scan_p scanner inp = 
             case capture (fst scanner) inp of
                 Just(tok, input') -> (length tok, (snd scanner tok, input'))
-                Nothing -> (0, (Space, input))
+                Nothing -> (0, (("space", ""), input))
 
         -- invoke all the scanners on the input
         candToks = map (\s -> scan_p s input) patterns
@@ -164,4 +160,79 @@ scan' patterns revt input
         -- find longest token
         ret = snd (candToks !! (maxIndex (map (\r -> fst r) candToks)))
 
+data Problem = [Equation]
+    deriving (Eq, Show, Read)
+data Equation = (Expr, Expr)
+    deriving (Eq, Show, Read)
+data Expr = 
+    Empty
+    | Binary Char Expr Expr
+    | Unary Char Expr
+    | FnCall String [Expr]
+    deriving (Eq, Show, Read)
 
+
+-- Problem → { Equation }
+-- Equations → Equation | Equation , Equations
+-- EquationsTail
+-- Equation → Expr = Expr
+
+-- Expr   -> Term \+ Ttail
+-- Ttail  -> \+ Term Ttail | empty
+-- Term   -> Factor Ftail
+-- Ftail  -> \* Factor Ftail | empty
+-- Factor -> Id_or_Call | Paren | Negative
+-- Paren  -> \( Expr \)
+-- Negative -> \- Factor
+--
+-- Id_or_Call -> Id (Arguments | empty)
+-- Arguments  -> \( Expr Argtail \)
+-- Argtail    -> \, Expr Argtail | empty
+
+-- Factor → identifier | variable
+-- Factor → constant | \( Expr \)| Function_call
+-- Function_call → identifier \( (Arguments|ε) \) // includes calls like f()
+-- Arguments → Term | Term , Arguments
+
+
+parse :: String -> Problem
+parse input = parseProblem (scan input)
+
+parseProblem input = 
+    (next_token_v "{" input)        `bind` (\ (t, in1) ->
+        parse    
+        
+    )
+
+
+-- maybe next token is same value specified
+next_token_v :: String -> [(String, String)] -> Maybe ((String, String), [(String, String)])
+next_token_v val (h:rem) = 
+    | val == (snd h) = Just(h, rem)
+    | otherwise = Nothing
+next_token_v _ [] = Nothing
+
+-- maybe next token is same type specified
+next_token_t :: String -> [(String, String)] -> Maybe ((String, String), [(String, String)])
+next_token_t t (h:rem) = 
+    | t == (fst h) = Just(h, rem)
+    | otherwise = Nothing
+next_token_t _ [] = Nothing
+
+
+---------- UTILITIES --------------------------------------------------
+--
+-- The bind routine lets us take a Just val and run a function on the val.
+-- If given Nothing instead, bind also yields Nothing.
+--
+bind :: Maybe a -> (a -> Maybe b) -> Maybe b
+bind Nothing f = Nothing
+bind (Just val) f = f val
+
+--
+-- The fails routine lets you call a function() if given Nothing; if
+-- given Just val, the fails routine just yields that.
+--
+fails :: Maybe a -> (() -> Maybe a) -> Maybe a
+fails Nothing f = f()
+fails ok _ = ok
