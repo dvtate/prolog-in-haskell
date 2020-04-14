@@ -150,9 +150,10 @@ parse_id_or_call input =
 --
 parse_arguments :: Parser [Ptree]
 parse_arguments input =
-    next_symbol lparen input `bind` (\(_, input1) -> 
-        (parse_E input1     `bind` (\(e, input2) -> parse_argtail input2)
-                    `fails` (\() -> parse_empty input1 
+    next_symbol lparen input    `bind` (\(_, input1) -> 
+    (parse_E input1             `bind` (\(e, input2) -> 
+    parse_argtail input2)       `fails` (\() -> 
+    parse_empty input1 
                         `bind` (\(e, input3) -> Just([e], input3)))
         ) `bind` (\(arglist, input3) -> 
             next_symbol rparen input3 `bind` (\(_, input4) ->
