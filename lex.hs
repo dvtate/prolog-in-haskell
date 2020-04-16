@@ -102,12 +102,12 @@ variable        = RE_and [ uc_letter, RE_star alphanum ]
 
 spaces          = RE_in_set " \n\t"
 
-data Token  = Const String    -- integer constant
-                | Id String    -- labelled constant identifier
-                | Var String   -- variable identifier
-                | Op Char      -- operator
-                | Space        -- whitespace to ignore
-    deriving (Show, Read, Eq)
+-- data Token  = Const String    -- integer constant
+--                 | Id String    -- labelled constant identifier
+--                 | Var String   -- variable identifier
+--                 | Op Char      -- operator
+--                 | Space        -- whitespace to ignore
+--     deriving (Show, Read, Eq)
 
 -- scan_rexps are the regexprs to use to break up the input.  The format of each
 -- pair is (regexpr, fcn); if capture regexpr produces a string str, apply the function
@@ -167,18 +167,18 @@ scan' patterns revt input
 
 ---------- UTILITIES --------------------------------------------------
 -- maybe next token is same value specified
-next_token_v :: String -> [(String, String)] -> Maybe ((String, String), [(String, String)])
-next_token_v val (h:rem) = 
+parse_token_v :: String -> [(String, String)] -> Maybe ((String, String), [(String, String)])
+parse_token_v val (h:rem)
     | val == (snd h) = Just(h, rem)
     | otherwise = Nothing
-next_token_v _ [] = Nothing
+parse_token_v _ [] = Nothing
 
 -- maybe next token is same type specified
-next_token_t :: String -> [(String, String)] -> Maybe ((String, String), [(String, String)])
-next_token_t t (h:rem) = 
+parse_token_t :: String -> [(String, String)] -> Maybe ((String, String), [(String, String)])
+parse_token_t t (h:rem)
     | t == (fst h) = Just(h, rem)
     | otherwise = Nothing
-next_token_t _ [] = Nothing
+parse_token_t _ [] = Nothing
 
 --
 -- The bind routine lets us take a Just val and run a function on the val.
@@ -202,16 +202,12 @@ fails ok _ = ok
 -- returns the given term or factor.  This optimization reduces the
 -- number of skinny paths through the parse tree, which becomes shorter.
 --
-make_tail :: (Ptree -> Ptree -> Ptree) -> Ptree -> Ptree -> Ptree
-make_tail _ ptree Empty = ptree
-make_tail build ptree tailtree =
-    build ptree tailtree
+-- make_tail :: (Ptree -> Ptree -> Ptree) -> Ptree -> Ptree -> Ptree
+-- make_tail _ ptree Empty = ptree
+-- make_tail build ptree tailtree =
+--     build ptree tailtree
 
 -- AST
-data Problem = [Equation]
-    deriving (Eq, Show, Read)
-data Equation = (Expr, Expr)
-    deriving (Eq, Show, Read)
 data Expr = 
     Empty
     | Binary Char Expr Expr     -- +, -, etc.
@@ -222,6 +218,13 @@ data Expr =
     | Num String                -- 123
     deriving (Eq, Show, Read)
 
+type Equation = (Expr, Expr)
+    -- deriving (Eq, Show, Read)
+
+type Problem = [Equation]
+    -- deriving (Eq, Show, Read)
+
+
 -- Problem → { Equations }
 -- Equations → Equation EquationsTail
 -- EquationsTail -> , Equations | empty
@@ -231,24 +234,22 @@ data Expr =
 -- Ttail  -> \+ Term Ttail | empty
 -- Term   -> Factor Ftail
 -- Ftail  -> \* Factor Ftail | empty
--- Factor -> Id_or_Call | Paren | Negative
 -- Paren  -> \( Expr \)
 -- Negative -> \- Factor
--- Factor → identifier | variable | constant | \( Expr \) | Function_call
+-- Factor → identifier | variable | constant | Paren | Function_call | Negative
 -- Function_call → identifier (Arguments)
 -- Arguments  -> Expr Argtail | empty
 -- Argtail    -> \, Expr Argtail | empty
 
-
-parse :: String -> Problem
+-- parse :: String -> Problem
 parse input = parse_problem (scan input)
 
 -- Problem -> { Equations }
 parse_problem input = 
-    (next_token_v "{" input)    `bind` (\ (_, in1) ->
+    (parse_token_v "{" input)    `bind` (\ (_, in1) ->
         (parse_equations in1)       `bind` (\ (ret, in2) ->
-            (next_token_v "}" in2)      `bind` (\ (_, in3) ->
-                Just(Problem ret, in3)
+            (parse_token_v "}" in2)      `bind` (\ (_, in3) ->
+                Just(ret, in3)
             )
         )
     )
@@ -274,7 +275,7 @@ parse_equation input =
     (parse_expr input) `bind` (\ (e1, in1) ->
         (parse_token_v "=" in1) `bind` (\ (_, in2) ->
             (parse_expr in2) `bind` (\ (e2, in3) ->
-                Just(Equation (e1, e2), in3)
+                Just((e1, e2), in3)
             )
         )
     )
@@ -282,4 +283,106 @@ parse_equation input =
 -- Expr -> Term \+ Ttail
 parse_expr input =
     (parse_term input) `bind` (\ (t1, in1) ->
+        (parse_term_tail in1 t1) `bind` (\ (tt, in2) ->
+            Just(tt, in2)
+        ) `fails` (\ () -> 
+            Just(t1, in1)
+        )
+    )
+
+
+-- Term   -> Factor Ftail
+parse_term input = 
+    (parse_factor input) `bind` (\ (f, in1) -> 
+        (parse_factor_tail in1) `bind` (\ (ft, in2) ->
+            Just(Binary '*' f ft, in2)
+        ) `fails` (\ () -> 
+            Just(f, in1)
+        )
+    )
+
+-- Ttail  -> \+ Term | empty
+parse_term_tail input term = 
+    (parse_token_v "+" input) `bind` (\ (_, in1) -> 
+        (parse_term in1) `bind` (\ (t, in2) -> 
+            Just(Binary '+' term t, in2)
+        )
+    ) `fails` (\ () -> Just(term, input))
+    
+
+-- Factor →  Function_call | identifier | variable | constant | Paren | Negative
+parse_factor input = 
+    (parse_function_call input) 
+    `fails` (\() -> parse_id input)
+    `fails` (\() -> parse_variable input)
+    `fails` (\() -> parse_const input)
+    `fails` (\() -> parse_paren input)
+    `fails` (\() -> parse_negative input)
+    
+-- Ftail  -> \* Factor Ftail | empty
+parse_factor_tail input =
+    (parse_token_v "*" input) `bind` (\ (_, in1) ->
+        (parse_term in1) -- AKA: Ftail -> \* Term | empty
+    )
+
+-- parse identifier
+parse_id input = 
+    (parse_token_t "id" input) `bind` (\ (token, in1) ->
+        Just(Id (snd token), in1)
+    )
+
+parse_const input = 
+    (parse_token_t "const" input) `bind` (\ (token, in1) -> 
+        Just (Num (snd token), in1)
+    )
+
+parse_variable input =
+    (parse_token_t "var" input) `bind` (\ (token, in1) -> 
+        Just (Var (snd token), in1)
+    )
+
+-- Function_call → identifier (Arguments)
+parse_function_call input =
+    (parse_id input) `bind` (\ (Id id, in1) -> 
+        (parse_token_v "(" in1) `bind` (\ (_, in2) ->
+            (parse_arguments in2) `bind` (\ (args, in3) -> 
+                (parse_token_v ")" in3) `bind` (\ (_, in4) -> 
+                    Just(FnCall id args, in4)
+                )
+            )
+        )
+    )
+
+-- Arguments  -> Expr Argtail | empty
+parse_arguments input =
+    (parse_expr input) `bind` (\ (e, in1) ->
+        (parse_arguments_tail in1) `bind` (\ (es, in2) -> 
+            Just(e : es, in2)    
+        )
+    )
+
+-- Argtail    -> \, Expr Argtail | empty
+parse_arguments_tail input =
+    (parse_token_v "," input) `bind` (\ (_, in1) ->
+        (parse_arguments in1)     
+    ) `fails` (\ () -> 
+        Just([], input)
+    )
+
+-- \( expr \)
+parse_paren input = 
+    (parse_token_v "(" input) `bind` (\ (_, in1) ->
+        (parse_expr in1) `bind` (\ (e, in2) -> 
+            (parse_token_v ")" in2) `bind` (\ (_, in3) ->
+                Just(e, in3)
+            )
+        )
+    )
+
+-- - Factor
+parse_negative input = 
+    (parse_token_v "-" input) `bind` (\ (_, in1) ->
+        (parse_factor in1) `bind` (\ (f, in2) -> 
+            Just (Negative f, in2)
+        )    
     )
