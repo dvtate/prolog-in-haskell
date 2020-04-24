@@ -241,6 +241,7 @@ type Problem = [Equation]
 -- Arguments  -> Expr Argtail | empty
 -- Argtail    -> \, Expr Argtail | empty
 
+
 -- parse :: String -> Problem
 parse input = parse_problem (scan input)
 
@@ -386,3 +387,139 @@ parse_negative input =
             Just (Negative f, in2)
         )    
     )
+
+
+
+-- type Substitution = (Var, Expr)
+data Solution = 
+    NoSolution String [(Expr, Expr)]
+    | Solution [(Expr, Expr)]
+    deriving (Eq, Show, Read)
+
+
+-- for each equation
+substitute res [] sub = res
+substitute res ((e0, e1) : eqs) sub = 
+    substitute ((substitute'' e0 sub, substitute'' e1 sub) : res) eqs sub
+
+-- for each branch
+substitute'' expr sub@(Var sv, se) = 
+    case expr of
+        v@(Var vn) ->
+            if vn == sv then se else v
+        (Binary op e0 e1) ->
+            Binary op (substitute'' e0 sub) (substitute'' e1 sub)
+        (Negative e0) ->
+            Negative (substitute'' e0 sub)
+        (FnCall n args) ->
+            FnCall n (map (\arg -> substitute'' arg sub) args)
+        -- Num/Id/Empty
+        any -> any
+
+
+unify s [] = Solution s
+unify s (eq : eqs) = 
+    case eq of
+        (Num n0, Num n1) ->
+            if n0 == n1 then
+                unify s eqs
+            else
+                NoSolution ("can't unify " ++ (show n0) ++ " and " ++ (show n1)) s
+                
+        ((FnCall fn0 args0), (FnCall fn1 args1)) ->
+            if fn0 == fn1 && (length args0) == (length args1) then
+                unify s ((zip args0 args1) ++ eqs)
+            else if fn0 == fn1 && (length args0) /= (length args1) then
+                NoSolution ("function " ++ fn0 ++ " called with differing number of arguments") s
+            else -- TODO: replace this with substiution of fn names
+                NoSolution ("differing function names " ++ (show fn0) ++ " and " ++ (show fn1)) s
+                
+        ((Binary op0 e00 e01), (Binary op1 e10 e11)) ->
+            if op0 == op1 then
+                unify s ((e00, e10) : (e01, e11) : eqs)
+            else
+                NoSolution ("differing operators " ++ (show op0) ++ " and " ++ (show op1)) s
+
+        (Negative e0, Negative e1) ->
+            unify s ((e0, e1) : eqs)
+
+        (Id a, Id b) -> 
+            if a == b then
+                unify s eqs
+            else
+                NoSolution ("cannot unify unique identifiers " ++ (show a) ++ " and " ++ (show b)) s
+        
+        -- probably should have been a parse error...
+        (e, Empty) ->
+            NoSolution ("failed on " ++ (show e) ++ ", maybe parse error?") s
+        (Empty, e) ->
+            NoSolution ("failed on " ++ (show e) ++ ", maybe parse error?") s
+
+        (Var a, Var b) ->
+            if a == b then
+                unify s eqs
+            else
+                case (unify ((Var a, Var b) : (substitute [] s (Var a, Var b))) (substitute [] eqs (Var a, Var b)) ) of 
+                    ok@(Solution sol) -> ok
+                    bad ->
+                        -- try other way around...
+                        case (unify (substitute [] s (Var b, Var a)) (substitute [] eqs (Var b, Var a)) ) of 
+                            ok@(Solution sol) -> ok
+                            _ -> bad
+
+        sub@(Var v, expr) ->
+            unify (sub : (substitute [] s sub)) (substitute [] eqs sub)
+        (expr, Var v) ->
+            unify ((Var v, expr) : (substitute [] s (Var v, expr))) (substitute [] eqs (Var v, expr))
+
+        -- disparate types
+        (_, _) ->
+            NoSolution "cannot unify disparate expression types" s
+
+-- equivalent to javascript String.join()
+str_join str tok = foldl (++) [] (ins tok str)
+    where -- put i in between elements of list
+        ins i = foldr (\x ys -> x : if null ys then [] else i : ys) []
+
+pprint (NoSolution m s) = "Unification Failed: " ++ m ++ (
+    if length s > 0 then
+        "\nPartial Solution:\n" ++ pprint (Solution s)
+    else "") ++ "\n"
+
+pprint (Solution eqs) = if length eqs > 0 then
+        "{\n" ++ (str_join (map pp_eq eqs) ",\n") ++ "\n}\n" 
+     else "{}\n"
+
+pp_eq (l, r) = "  " ++ (ppexpr l) ++ " = " ++ (ppexpr r)
+
+ppexpr (Var v) = v
+ppexpr (Id c) = c
+ppexpr (Num n) = n
+ppexpr (Negative e) = "-" ++ (ppexpr e)
+ppexpr (FnCall name args) = name ++ "(" ++ (str_join (map ppexpr args) ", ") ++ ")"
+ppexpr (Binary op a b) = (ppop op a) ++ " " ++ [op] ++ " " ++ (ppop op b)
+    where
+        ppop op v = if op == '+' then (ppexpr v) else
+            case v of
+                (Binary op2 _ _) -> 
+                    if op2 == '+' then
+                        "(" ++ (ppexpr v) ++ ")"
+                    else (ppexpr v)
+                _ -> ppexpr v
+
+solve problem = "Solving: " ++ problem ++ "...\n" ++ (
+    case parse problem of 
+        Nothing -> "Syntax Error: failed to parse problem"
+        Just (tree, rem) -> pprint (unify [] tree))
+
+
+-- unit tests
+tests = [
+    "{X=Y,X=3}", -- Solution: Y=3, X=3 (not Y=3, X=Y)
+    "{X=1,X=3}", -- Unification fails (tries to unify 1 and 3)
+    "{f(a,Y) = f(X,b), c = Z}", -- Solution: Z=c, Y=b, X=a
+    "{f(X) = g(Y)}", -- Unification fails (different function names)
+    "{f(X,Y) = f(X)}", -- Unification fails (different # of arguments)
+    "{f(f(f(f(a, Z),Y),X),W) = f(W,f(X,f(Y,f(Z,a))))}" ] -- (found on Wikipedia)
+
+-- t = putStrLn (foldl (++) [] (map (\t -> (solve t) ) tests))
